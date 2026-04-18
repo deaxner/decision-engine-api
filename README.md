@@ -59,15 +59,21 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 
 - `POST /register`
 - `POST /login`
+- `GET /workspaces`
 - `POST /workspaces`
+- `GET /workspaces/{id}`
 - `POST /workspaces/{id}/members`
+- `GET /workspaces/{id}/sessions`
 - `POST /workspaces/{id}/sessions`
+- `GET /sessions/{id}`
 - `POST /sessions/{id}/options`
 - `PATCH /sessions/{id}`
 - `POST /sessions/{id}/votes`
 - `GET /sessions/{id}/results`
 
 Authenticated endpoints expect `Authorization: Bearer <token>` using the token returned by `/register` or `/login`.
+
+`POST /workspaces/{id}/members` accepts either `user_id` for compatibility or `email` for the web MVP. Email membership adds an already registered user; invite emails are not part of this slice.
 
 `POST /sessions/{id}/votes` persists the vote and dispatches async result recomputation. The response confirms acceptance and does not include the result snapshot. Clients should read `GET /sessions/{id}/results` or subscribe to Mercure updates.
 

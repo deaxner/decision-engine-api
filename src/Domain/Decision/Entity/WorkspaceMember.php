@@ -47,5 +47,14 @@ class WorkspaceMember
     {
         return $this->role;
     }
-}
 
+    public function getWorkspace(): Workspace
+    {
+        return $this->workspace;
+    }
+
+    public function getUser(): User
+    {
+        return $this->user;
+    }
+}

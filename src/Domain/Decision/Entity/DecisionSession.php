@@ -80,6 +80,16 @@ class DecisionSession
         return $this->workspace;
     }
 
+    public function getTitle(): string
+    {
+        return $this->title;
+    }
+
+    public function getDescription(): ?string
+    {
+        return $this->description;
+    }
+
     public function getStatus(): string
     {
         return $this->status;
@@ -88,6 +98,21 @@ class DecisionSession
     public function getVotingType(): string
     {
         return $this->votingType;
+    }
+
+    public function getStartsAt(): ?\DateTimeImmutable
+    {
+        return $this->startsAt;
+    }
+
+    public function getEndsAt(): ?\DateTimeImmutable
+    {
+        return $this->endsAt;
+    }
+
+    public function getCreatedAt(): \DateTimeImmutable
+    {
+        return $this->createdAt;
     }
 
     /** @return Collection<int, DecisionOption> */
@@ -128,4 +153,3 @@ class DecisionSession
         $this->endsAt = new \DateTimeImmutable();
     }
 }
-

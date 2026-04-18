@@ -16,20 +16,42 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class SessionController extends ApiController
 {
-    public function __construct(private readonly MessageBusInterface $bus)
-    {
+    public function __construct(
+        private readonly MessageBusInterface $bus,
+        private readonly AuthContext $auth,
+        private readonly WorkspaceAccess $access,
+    ) {
     }
 
-    #[Route('/workspaces/{id}/sessions', methods: ['POST'])]
-    public function create(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
+    #[Route('/workspaces/{id}/sessions', methods: ['GET'])]
+    public function listForWorkspace(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
-            $user = $auth->user($request);
+            $user = $this->auth->user($request);
             $workspace = $entityManager->find(Workspace::class, $id);
             if (!$workspace instanceof Workspace) {
                 throw new \DomainException('Workspace not found.');
             }
-            $access->requireMember($user, $workspace);
+            $this->access->requireMember($user, $workspace);
+
+            $sessions = $entityManager->getRepository(DecisionSession::class)->findBy(['workspace' => $workspace], ['createdAt' => 'DESC']);
+
+            return $this->ok(array_map(fn (DecisionSession $session) => $this->sessionPayload($session), $sessions));
+        } catch (\Throwable $exception) {
+            return $this->fail($exception);
+        }
+    }
+
+    #[Route('/workspaces/{id}/sessions', methods: ['POST'])]
+    public function create(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        try {
+            $user = $this->auth->user($request);
+            $workspace = $entityManager->find(Workspace::class, $id);
+            if (!$workspace instanceof Workspace) {
+                throw new \DomainException('Workspace not found.');
+            }
+            $this->access->requireMember($user, $workspace);
 
             $body = $this->body($request);
             foreach (['title', 'voting_type'] as $field) {
@@ -49,15 +71,15 @@ final class SessionController extends ApiController
     }
 
     #[Route('/sessions/{id}/options', methods: ['POST'])]
-    public function addOption(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
+    public function addOption(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
-            $user = $auth->user($request);
+            $user = $this->auth->user($request);
             $session = $entityManager->find(DecisionSession::class, $id);
             if (!$session instanceof DecisionSession) {
                 throw new \DomainException('Session not found.');
             }
-            $access->requireOwner($user, $session->getWorkspace());
+            $this->access->requireOwner($user, $session->getWorkspace());
 
             $body = $this->body($request);
             if (!isset($body['title']) || !is_string($body['title']) || trim($body['title']) === '') {
@@ -76,16 +98,33 @@ final class SessionController extends ApiController
         }
     }
 
-    #[Route('/sessions/{id}', methods: ['PATCH'])]
-    public function updateStatus(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
+    #[Route('/sessions/{id}', methods: ['GET'])]
+    public function detail(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
-            $user = $auth->user($request);
+            $user = $this->auth->user($request);
             $session = $entityManager->find(DecisionSession::class, $id);
             if (!$session instanceof DecisionSession) {
                 throw new \DomainException('Session not found.');
             }
-            $access->requireOwner($user, $session->getWorkspace());
+            $this->access->requireMember($user, $session->getWorkspace());
+
+            return $this->ok($this->sessionPayload($session));
+        } catch (\Throwable $exception) {
+            return $this->fail($exception);
+        }
+    }
+
+    #[Route('/sessions/{id}', methods: ['PATCH'])]
+    public function updateStatus(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        try {
+            $user = $this->auth->user($request);
+            $session = $entityManager->find(DecisionSession::class, $id);
+            if (!$session instanceof DecisionSession) {
+                throw new \DomainException('Session not found.');
+            }
+            $this->access->requireOwner($user, $session->getWorkspace());
 
             $body = $this->body($request);
             $status = $body['status'] ?? null;
@@ -112,8 +151,12 @@ final class SessionController extends ApiController
     {
         return [
             'id' => (string) $session->getId(),
+            'title' => $session->getTitle(),
+            'description' => $session->getDescription(),
             'status' => $session->getStatus(),
             'voting_type' => $session->getVotingType(),
+            'starts_at' => $session->getStartsAt()?->format(\DateTimeInterface::ATOM),
+            'ends_at' => $session->getEndsAt()?->format(\DateTimeInterface::ATOM),
             'options' => array_map(fn (DecisionOption $option) => $this->optionPayload($option), $session->getOptions()->toArray()),
         ];
     }

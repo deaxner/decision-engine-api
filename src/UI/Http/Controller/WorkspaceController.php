@@ -14,11 +14,33 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class WorkspaceController extends ApiController
 {
-    #[Route('/workspaces', methods: ['POST'])]
-    public function create(Request $request, AuthContext $auth, EntityManagerInterface $entityManager): JsonResponse
+    public function __construct(
+        private readonly AuthContext $auth,
+        private readonly WorkspaceAccess $access,
+    ) {
+    }
+
+    #[Route('/workspaces', methods: ['GET'])]
+    public function listWorkspaces(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
-            $user = $auth->user($request);
+            $user = $this->auth->user($request);
+            $memberships = $entityManager->getRepository(WorkspaceMember::class)->findBy(['user' => $user]);
+
+            return $this->ok(array_map(
+                fn (WorkspaceMember $member) => $this->workspacePayload($member->getWorkspace(), $member->getRole()),
+                $memberships,
+            ));
+        } catch (\Throwable $exception) {
+            return $this->fail($exception);
+        }
+    }
+
+    #[Route('/workspaces', methods: ['POST'])]
+    public function create(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        try {
+            $user = $this->auth->user($request);
             $body = $this->body($request);
             foreach (['name', 'slug'] as $field) {
                 if (!isset($body[$field]) || !is_string($body[$field]) || trim($body[$field]) === '') {
@@ -31,27 +53,52 @@ final class WorkspaceController extends ApiController
             $entityManager->persist(new WorkspaceMember($workspace, $user, WorkspaceMember::OWNER));
             $entityManager->flush();
 
-            return $this->ok($this->workspacePayload($workspace), 201);
+            return $this->ok($this->workspacePayload($workspace, WorkspaceMember::OWNER), 201);
+        } catch (\Throwable $exception) {
+            return $this->fail($exception);
+        }
+    }
+
+    #[Route('/workspaces/{id}', methods: ['GET'])]
+    public function detail(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        try {
+            $user = $this->auth->user($request);
+            $workspace = $entityManager->find(Workspace::class, $id);
+            if (!$workspace instanceof Workspace) {
+                throw new \DomainException('Workspace not found.');
+            }
+            $member = $this->access->requireMember($user, $workspace);
+
+            return $this->ok($this->workspacePayload($workspace, $member->getRole()));
         } catch (\Throwable $exception) {
             return $this->fail($exception);
         }
     }
 
     #[Route('/workspaces/{id}/members', methods: ['POST'])]
-    public function addMember(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
+    public function addMember(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
-            $user = $auth->user($request);
+            $user = $this->auth->user($request);
             $workspace = $entityManager->find(Workspace::class, $id);
             if (!$workspace instanceof Workspace) {
                 throw new \DomainException('Workspace not found.');
             }
-            $access->requireOwner($user, $workspace);
+            $this->access->requireOwner($user, $workspace);
 
             $body = $this->body($request);
-            $memberUser = isset($body['user_id']) ? $entityManager->find(User::class, (int) $body['user_id']) : null;
+            $memberUser = null;
+            if (isset($body['email']) && is_string($body['email'])) {
+                $memberUser = $entityManager->getRepository(User::class)->findOneBy(['email' => strtolower($body['email'])]);
+            } elseif (isset($body['user_id'])) {
+                $memberUser = $entityManager->find(User::class, (int) $body['user_id']);
+            }
             if (!$memberUser instanceof User) {
                 throw new \DomainException('Member user not found.');
+            }
+            if ($entityManager->getRepository(WorkspaceMember::class)->findOneBy(['workspace' => $workspace, 'user' => $memberUser])) {
+                throw new \DomainException('User is already a workspace member.');
             }
 
             $entityManager->persist(new WorkspaceMember($workspace, $memberUser, WorkspaceMember::MEMBER));
@@ -63,13 +110,18 @@ final class WorkspaceController extends ApiController
         }
     }
 
-    private function workspacePayload(Workspace $workspace): array
+    private function workspacePayload(Workspace $workspace, ?string $role = null): array
     {
-        return [
+        $payload = [
             'id' => (string) $workspace->getId(),
             'name' => $workspace->getName(),
             'slug' => $workspace->getSlug(),
         ];
+
+        if ($role !== null) {
+            $payload['role'] = $role;
+        }
+
+        return $payload;
     }
 }
-

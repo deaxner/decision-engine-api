@@ -124,6 +124,105 @@ final class ApiFlowTest extends WebTestCase
         self::assertResponseStatusCodeSame(400);
     }
 
+    public function testWorkspaceReadModelAndEmailMembers(): void
+    {
+        $client = static::createClient();
+        $owner = $this->register($client, 'owner-read@example.test');
+        $member = $this->register($client, 'member-read@example.test');
+        $outsider = $this->register($client, 'outsider-read@example.test');
+
+        $client->request('POST', '/workspaces', server: $this->auth($owner['token']), content: json_encode([
+            'name' => 'Research',
+            'slug' => 'research',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $workspace = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('OWNER', $workspace['role']);
+
+        $client->request('GET', '/workspaces', server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $ownerWorkspaces = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertCount(1, $ownerWorkspaces);
+        self::assertSame($workspace['id'], $ownerWorkspaces[0]['id']);
+        self::assertSame('OWNER', $ownerWorkspaces[0]['role']);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($outsider['token']));
+        self::assertResponseStatusCodeSame(400);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
+            'email' => $member['user']['email'],
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $membership = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($member['user']['id'], $membership['user_id']);
+        self::assertSame('MEMBER', $membership['role']);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
+            'email' => $member['user']['email'],
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(400);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
+            'email' => 'missing@example.test',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(400);
+
+        $client->request('GET', '/workspaces', server: $this->auth($member['token']));
+        self::assertResponseIsSuccessful();
+        $memberWorkspaces = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertCount(1, $memberWorkspaces);
+        self::assertSame('MEMBER', $memberWorkspaces[0]['role']);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($member['token']));
+        self::assertResponseIsSuccessful();
+        $workspaceDetail = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($workspace['id'], $workspaceDetail['id']);
+        self::assertSame('MEMBER', $workspaceDetail['role']);
+    }
+
+    public function testSessionReadModel(): void
+    {
+        $client = static::createClient();
+        $owner = $this->register($client, 'session-read@example.test');
+
+        $client->request('POST', '/workspaces', server: $this->auth($owner['token']), content: json_encode([
+            'name' => 'Product',
+            'slug' => 'product-read',
+        ], JSON_THROW_ON_ERROR));
+        $workspace = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']), content: json_encode([
+            'title' => 'Choose launch plan',
+            'description' => 'Pick the launch plan for Q2.',
+            'voting_type' => 'RANKED_IRV',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $session = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        $client->request('POST', '/sessions/'.$session['id'].'/options', server: $this->auth($owner['token']), content: json_encode(['title' => 'Second', 'position' => 2], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $client->request('POST', '/sessions/'.$session['id'].'/options', server: $this->auth($owner['token']), content: json_encode(['title' => 'First', 'position' => 1], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $sessions = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertCount(1, $sessions);
+        self::assertSame($session['id'], $sessions[0]['id']);
+        self::assertSame('Choose launch plan', $sessions[0]['title']);
+        self::assertSame('RANKED_IRV', $sessions[0]['voting_type']);
+
+        $client->request('GET', '/sessions/'.$session['id'], server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $detail = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Choose launch plan', $detail['title']);
+        self::assertSame('Pick the launch plan for Q2.', $detail['description']);
+        self::assertSame('DRAFT', $detail['status']);
+        self::assertNull($detail['starts_at']);
+        self::assertNull($detail['ends_at']);
+        self::assertSame(['First', 'Second'], array_column($detail['options'], 'title'));
+    }
+
     private function register($client, string $email): array
     {
         $client->request('POST', '/register', content: json_encode([
