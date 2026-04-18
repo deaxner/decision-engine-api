@@ -52,6 +52,10 @@ final class ResultCalculator
         ];
 
         $result = $this->entityManager->getRepository(SessionResult::class)->find($session) ?? new SessionResult($session);
+        if ($result->getVersion() > 0 && $result->matches($computed['winner'], $resultData)) {
+            return $result;
+        }
+
         $result->update($computed['winner'] ? $optionById[$computed['winner']] : null, $resultData);
         $this->entityManager->persist($result);
         $this->entityManager->flush();
@@ -60,4 +64,3 @@ final class ResultCalculator
         return $result;
     }
 }
-

@@ -1,0 +1,7 @@
+services:
+  App\Tests\Infrastructure\Mercure\RecordingResultUpdatedPublisher:
+    public: true
+
+  App\Application\Decision\ResultUpdatedPublisher:
+    alias: App\Tests\Infrastructure\Mercure\RecordingResultUpdatedPublisher
+    public: true

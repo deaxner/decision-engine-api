@@ -40,6 +40,20 @@ class SessionResult
         $this->calculatedAt = new \DateTimeImmutable();
     }
 
+    public function matches(?int $winningOptionId, array $resultData): bool
+    {
+        $currentWinningOptionId = $this->winningOption?->getId();
+        $currentResultData = $this->resultData;
+        unset($currentResultData['computed_at'], $resultData['computed_at']);
+
+        return $currentWinningOptionId === $winningOptionId && $currentResultData == $resultData;
+    }
+
+    public function getVersion(): int
+    {
+        return $this->version;
+    }
+
     public function toArray(): array
     {
         return [
@@ -51,4 +65,3 @@ class SessionResult
         ];
     }
 }
-

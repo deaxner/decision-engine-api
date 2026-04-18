@@ -3,7 +3,7 @@
 namespace App\UI\Http\Controller;
 
 use App\Application\Decision\AuthContext;
-use App\Application\Decision\ResultCalculator;
+use App\Application\Decision\Message\VoteCastEvent;
 use App\Application\Decision\VotePayloadValidator;
 use App\Application\Decision\WorkspaceAccess;
 use App\Domain\Decision\Entity\DecisionOption;
@@ -13,12 +13,17 @@ use App\Domain\Decision\Entity\Vote;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class VoteController extends ApiController
 {
+    public function __construct(private readonly MessageBusInterface $bus)
+    {
+    }
+
     #[Route('/sessions/{id}/votes', methods: ['POST'])]
-    public function cast(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, VotePayloadValidator $validator, ResultCalculator $results, EntityManagerInterface $entityManager): JsonResponse
+    public function cast(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, VotePayloadValidator $validator, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
             $user = $auth->user($request);
@@ -38,9 +43,13 @@ final class VoteController extends ApiController
             $vote = new Vote($session, $user, $payload);
             $entityManager->persist($vote);
             $entityManager->flush();
-            $result = $results->recompute($session);
+            $this->bus->dispatch(new VoteCastEvent((int) $session->getId(), (int) $vote->getId()));
 
-            return $this->ok(['vote_id' => (string) $vote->getId(), 'result' => $result->toArray()], 202);
+            return $this->ok([
+                'vote_id' => (string) $vote->getId(),
+                'session_id' => (string) $session->getId(),
+                'status' => 'accepted',
+            ], 202);
         } catch (\Throwable $exception) {
             return $this->fail($exception);
         }
@@ -71,4 +80,3 @@ final class VoteController extends ApiController
         }
     }
 }
-

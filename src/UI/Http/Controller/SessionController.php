@@ -3,7 +3,7 @@
 namespace App\UI\Http\Controller;
 
 use App\Application\Decision\AuthContext;
-use App\Application\Decision\ResultCalculator;
+use App\Application\Decision\Message\RecomputeSessionResult;
 use App\Application\Decision\WorkspaceAccess;
 use App\Domain\Decision\Entity\DecisionOption;
 use App\Domain\Decision\Entity\DecisionSession;
@@ -11,10 +11,15 @@ use App\Domain\Decision\Entity\Workspace;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class SessionController extends ApiController
 {
+    public function __construct(private readonly MessageBusInterface $bus)
+    {
+    }
+
     #[Route('/workspaces/{id}/sessions', methods: ['POST'])]
     public function create(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
     {
@@ -72,7 +77,7 @@ final class SessionController extends ApiController
     }
 
     #[Route('/sessions/{id}', methods: ['PATCH'])]
-    public function updateStatus(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, ResultCalculator $results, EntityManagerInterface $entityManager): JsonResponse
+    public function updateStatus(int $id, Request $request, AuthContext $auth, WorkspaceAccess $access, EntityManagerInterface $entityManager): JsonResponse
     {
         try {
             $user = $auth->user($request);
@@ -94,7 +99,7 @@ final class SessionController extends ApiController
 
             $entityManager->flush();
             if ($status === DecisionSession::CLOSED) {
-                $results->recompute($session);
+                $this->bus->dispatch(new RecomputeSessionResult((int) $session->getId(), 'session_closed'));
             }
 
             return $this->ok($this->sessionPayload($session));
@@ -122,4 +127,3 @@ final class SessionController extends ApiController
         ];
     }
 }
-

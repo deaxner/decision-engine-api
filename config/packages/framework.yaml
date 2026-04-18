@@ -7,10 +7,12 @@ framework:
   messenger:
     transports:
       async: '%env(MESSENGER_TRANSPORT_DSN)%'
+    routing:
+      App\Application\Decision\Message\VoteCastEvent: async
+      App\Application\Decision\Message\RecomputeSessionResult: async
 
 when@test:
   framework:
     test: true
     session:
       storage_factory_id: session.storage.factory.mock_file
-

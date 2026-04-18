@@ -7,4 +7,20 @@ services:
     resource: '../src/'
 
   App\Application\Decision\ResultUpdatedPublisher:
-    alias: App\Infrastructure\Mercure\NoOpResultUpdatedPublisher
+    alias: App\Infrastructure\Mercure\MercureResultUpdatedPublisher
+
+  Symfony\Component\Mercure\Jwt\LcobucciFactory:
+    arguments:
+      $secret: '%env(MERCURE_JWT_SECRET)%'
+
+  Symfony\Component\Mercure\Jwt\FactoryTokenProvider:
+    arguments:
+      $factory: '@Symfony\Component\Mercure\Jwt\LcobucciFactory'
+      $publish: ['*']
+
+  Symfony\Component\Mercure\HubInterface:
+    class: Symfony\Component\Mercure\Hub
+    arguments:
+      $url: '%env(MERCURE_URL)%'
+      $jwtProvider: '@Symfony\Component\Mercure\Jwt\FactoryTokenProvider'
+      $publicUrl: '%env(MERCURE_PUBLIC_URL)%'

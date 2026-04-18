@@ -69,6 +69,14 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 
 Authenticated endpoints expect `Authorization: Bearer <token>` using the token returned by `/register` or `/login`.
 
+`POST /sessions/{id}/votes` persists the vote and dispatches async result recomputation. The response confirms acceptance and does not include the result snapshot. Clients should read `GET /sessions/{id}/results` or subscribe to Mercure updates.
+
+Mercure result updates are published to:
+
+```text
+/sessions/{id}/results
+```
+
 ## Implemented Rules
 
 - Votes are immutable.
@@ -77,6 +85,8 @@ Authenticated endpoints expect `Authorization: Bearer <token>` using the token r
 - Options can only be added while a session is `DRAFT`.
 - Votes can only be cast while a session is `OPEN`.
 - Results are derived snapshots and can be recomputed from votes.
+- Result recomputation runs through Messenger.
+- `session_results.version` only increments when the computed snapshot changes.
 - Majority and ranked IRV strategies use deterministic option-position tie handling.
 
 ## Local Commands
@@ -91,3 +101,5 @@ php vendor/bin/phpunit
 ```
 
 Functional tests use PostgreSQL 16 through `docker-compose.test.yaml` on port `55432`. Unit tests remain database-free.
+
+The default Messenger transport uses Redis through a Predis-backed transport for `redis://.../queue` DSNs, avoiding a hard dependency on the PHP `ext-redis` extension.
