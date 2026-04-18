@@ -1,0 +1,16 @@
+{
+  "name": "deaxner/decision-engine-api",
+  "description": "Symfony API for the real-time decision platform.",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.3"
+  },
+  "require-dev": {},
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}
+
