@@ -1,0 +1,20 @@
+doctrine:
+  dbal:
+    url: '%env(resolve:DATABASE_URL)%'
+  orm:
+    auto_generate_proxy_classes: true
+    enable_lazy_ghost_objects: true
+    report_fields_where_declared: true
+    mappings:
+      App:
+        type: attribute
+        is_bundle: false
+        dir: '%kernel.project_dir%/src/Domain'
+        prefix: 'App\Domain'
+        alias: App
+
+when@test:
+  doctrine:
+    dbal:
+      url: '%env(resolve:DATABASE_URL)%'
+

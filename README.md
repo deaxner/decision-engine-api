@@ -45,3 +45,49 @@ src/
 - Mercure
 - PHPUnit
 
+Local note: the project now requires PHP 8.4 or newer with `pdo_pgsql` enabled. PHP 8.5 is also supported and is installed locally at:
+
+```text
+C:\Users\bouke\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe
+```
+
+PHP 9 is not a stable PHP release branch, so it is not installed.
+
+The Windows machine PATH has been updated so new terminals resolve `php` to PHP 8.5 before XAMPP PHP. Restart existing terminals if they still show PHP 8.2.
+
+## API Surface
+
+- `POST /register`
+- `POST /login`
+- `POST /workspaces`
+- `POST /workspaces/{id}/members`
+- `POST /workspaces/{id}/sessions`
+- `POST /sessions/{id}/options`
+- `PATCH /sessions/{id}`
+- `POST /sessions/{id}/votes`
+- `GET /sessions/{id}/results`
+
+Authenticated endpoints expect `Authorization: Bearer <token>` using the token returned by `/register` or `/login`.
+
+## Implemented Rules
+
+- Votes are immutable.
+- The latest vote per user is the active vote.
+- Sessions move from `DRAFT` to `OPEN` to `CLOSED`.
+- Options can only be added while a session is `DRAFT`.
+- Votes can only be cast while a session is `OPEN`.
+- Results are derived snapshots and can be recomputed from votes.
+- Majority and ranked IRV strategies use deterministic option-position tie handling.
+
+## Local Commands
+
+```bash
+composer install
+composer run test:db:up
+php bin/console doctrine:migrations:migrate
+php bin/console lint:container
+php bin/console doctrine:schema:validate --skip-sync
+php vendor/bin/phpunit
+```
+
+Functional tests use PostgreSQL 16 through `docker-compose.test.yaml` on port `55432`. Unit tests remain database-free.

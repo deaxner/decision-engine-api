@@ -1,0 +1,6 @@
+controllers:
+  resource:
+    path: ../src/UI/Http/Controller/
+    namespace: App\UI\Http\Controller
+  type: attribute
+

@@ -4,6 +4,6 @@
 /vendor/
 /public/bundles/
 /.phpunit.cache/
+/.phpunit.result.cache
 /.idea/
 /.vscode/
-
