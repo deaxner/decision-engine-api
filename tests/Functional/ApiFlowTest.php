@@ -138,6 +138,9 @@ final class ApiFlowTest extends WebTestCase
         self::assertResponseStatusCodeSame(201);
         $workspace = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('OWNER', $workspace['role']);
+        self::assertSame(1, $workspace['member_count']);
+        self::assertSame(['total' => 0, 'draft' => 0, 'open' => 0, 'closed' => 0], $workspace['session_counts']);
+        self::assertSame(0, $workspace['participation_rate']);
 
         $client->request('GET', '/workspaces', server: $this->auth($owner['token']));
         self::assertResponseIsSuccessful();
@@ -145,6 +148,7 @@ final class ApiFlowTest extends WebTestCase
         self::assertCount(1, $ownerWorkspaces);
         self::assertSame($workspace['id'], $ownerWorkspaces[0]['id']);
         self::assertSame('OWNER', $ownerWorkspaces[0]['role']);
+        self::assertSame(1, $ownerWorkspaces[0]['member_count']);
 
         $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($outsider['token']));
         self::assertResponseStatusCodeSame(400);
@@ -172,12 +176,15 @@ final class ApiFlowTest extends WebTestCase
         $memberWorkspaces = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
         self::assertCount(1, $memberWorkspaces);
         self::assertSame('MEMBER', $memberWorkspaces[0]['role']);
+        self::assertSame(2, $memberWorkspaces[0]['member_count']);
 
         $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($member['token']));
         self::assertResponseIsSuccessful();
         $workspaceDetail = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame($workspace['id'], $workspaceDetail['id']);
         self::assertSame('MEMBER', $workspaceDetail['role']);
+        self::assertSame(2, $workspaceDetail['member_count']);
+        self::assertSame(0, $workspaceDetail['participation_rate']);
     }
 
     public function testSessionReadModel(): void
@@ -211,6 +218,11 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame($session['id'], $sessions[0]['id']);
         self::assertSame('Choose launch plan', $sessions[0]['title']);
         self::assertSame('RANKED_IRV', $sessions[0]['voting_type']);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $workspaceDetail = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['total' => 1, 'draft' => 1, 'open' => 0, 'closed' => 0], $workspaceDetail['session_counts']);
 
         $client->request('GET', '/sessions/'.$session['id'], server: $this->auth($owner['token']));
         self::assertResponseIsSuccessful();

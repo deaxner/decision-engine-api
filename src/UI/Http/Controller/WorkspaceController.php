@@ -4,6 +4,8 @@ namespace App\UI\Http\Controller;
 
 use App\Application\Decision\AuthContext;
 use App\Application\Decision\WorkspaceAccess;
+use App\Domain\Decision\Entity\DecisionSession;
+use App\Domain\Decision\Entity\SessionResult;
 use App\Domain\Decision\Entity\User;
 use App\Domain\Decision\Entity\Workspace;
 use App\Domain\Decision\Entity\WorkspaceMember;
@@ -28,7 +30,7 @@ final class WorkspaceController extends ApiController
             $memberships = $entityManager->getRepository(WorkspaceMember::class)->findBy(['user' => $user]);
 
             return $this->ok(array_map(
-                fn (WorkspaceMember $member) => $this->workspacePayload($member->getWorkspace(), $member->getRole()),
+                fn (WorkspaceMember $member) => $this->workspacePayload($entityManager, $member->getWorkspace(), $member->getRole()),
                 $memberships,
             ));
         } catch (\Throwable $exception) {
@@ -53,7 +55,7 @@ final class WorkspaceController extends ApiController
             $entityManager->persist(new WorkspaceMember($workspace, $user, WorkspaceMember::OWNER));
             $entityManager->flush();
 
-            return $this->ok($this->workspacePayload($workspace, WorkspaceMember::OWNER), 201);
+            return $this->ok($this->workspacePayload($entityManager, $workspace, WorkspaceMember::OWNER), 201);
         } catch (\Throwable $exception) {
             return $this->fail($exception);
         }
@@ -70,7 +72,7 @@ final class WorkspaceController extends ApiController
             }
             $member = $this->access->requireMember($user, $workspace);
 
-            return $this->ok($this->workspacePayload($workspace, $member->getRole()));
+            return $this->ok($this->workspacePayload($entityManager, $workspace, $member->getRole()));
         } catch (\Throwable $exception) {
             return $this->fail($exception);
         }
@@ -110,12 +112,51 @@ final class WorkspaceController extends ApiController
         }
     }
 
-    private function workspacePayload(Workspace $workspace, ?string $role = null): array
+    private function workspacePayload(EntityManagerInterface $entityManager, Workspace $workspace, ?string $role = null): array
     {
+        $memberCount = $entityManager->getRepository(WorkspaceMember::class)->count(['workspace' => $workspace]);
+        $sessions = $entityManager->getRepository(DecisionSession::class)->findBy(['workspace' => $workspace]);
+        $draftCount = 0;
+        $openCount = 0;
+        $closedCount = 0;
+        $participationRates = [];
+
+        foreach ($sessions as $session) {
+            if (!$session instanceof DecisionSession) {
+                continue;
+            }
+
+            if ($session->getStatus() === DecisionSession::DRAFT) {
+                ++$draftCount;
+                continue;
+            }
+
+            if ($session->getStatus() === DecisionSession::OPEN) {
+                ++$openCount;
+            } elseif ($session->getStatus() === DecisionSession::CLOSED) {
+                ++$closedCount;
+            }
+
+            $result = $entityManager->getRepository(SessionResult::class)->find($session);
+            if ($result instanceof SessionResult && $memberCount > 0) {
+                $resultData = $result->toArray()['result_data'] ?? [];
+                $totalVotes = isset($resultData['total_votes']) ? (int) $resultData['total_votes'] : 0;
+                $participationRates[] = min(100, (int) round(($totalVotes / $memberCount) * 100));
+            }
+        }
+
         $payload = [
             'id' => (string) $workspace->getId(),
             'name' => $workspace->getName(),
             'slug' => $workspace->getSlug(),
+            'member_count' => $memberCount,
+            'participation_rate' => count($participationRates) > 0 ? (int) round(array_sum($participationRates) / count($participationRates)) : 0,
+            'session_counts' => [
+                'total' => count($sessions),
+                'draft' => $draftCount,
+                'open' => $openCount,
+                'closed' => $closedCount,
+            ],
         ];
 
         if ($role !== null) {

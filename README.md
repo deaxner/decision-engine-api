@@ -2,6 +2,13 @@
 
 Symfony 7 backend for the real-time decision platform.
 
+## License Status
+
+This repository is source-available for viewing and evaluation only.
+All rights are reserved by the author. No permission is granted to use,
+modify, redistribute, or commercialize this code without prior written
+permission. See [LICENSE](LICENSE).
+
 This repository contains the modular monolith API. It owns the domain model, application use cases, persistence, async result computation, authentication, authorization, and Mercure publishing.
 
 ## Responsibilities
