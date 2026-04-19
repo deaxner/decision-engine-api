@@ -3,6 +3,7 @@
 namespace App\UI\Http\Controller;
 
 use App\Application\Decision\AuthContext;
+use App\Application\Decision\ActivityRecorder;
 use App\Application\Decision\Message\RecomputeSessionResult;
 use App\Application\Decision\WorkspaceAccess;
 use App\Domain\Decision\Entity\DecisionOption;
@@ -20,6 +21,7 @@ final class SessionController extends ApiController
         private readonly MessageBusInterface $bus,
         private readonly AuthContext $auth,
         private readonly WorkspaceAccess $access,
+        private readonly ActivityRecorder $activity,
     ) {
     }
 
@@ -62,6 +64,13 @@ final class SessionController extends ApiController
 
             $session = new DecisionSession($workspace, $user, $body['title'], $body['description'] ?? null, $body['voting_type']);
             $entityManager->persist($session);
+            $this->activity->record(
+                $workspace,
+                'session_created',
+                sprintf('%s created decision %s.', $user->getDisplayName(), $session->getTitle()),
+                $user,
+                $session,
+            );
             $entityManager->flush();
 
             return $this->ok($this->sessionPayload($session), 201);
@@ -90,6 +99,14 @@ final class SessionController extends ApiController
             $option = new DecisionOption($session, $body['title'], $position);
             $session->addOption($option);
             $entityManager->persist($option);
+            $this->activity->record(
+                $session->getWorkspace(),
+                'option_added',
+                sprintf('%s added option %s to %s.', $user->getDisplayName(), $option->getTitle(), $session->getTitle()),
+                $user,
+                $session,
+                ['option_title' => $option->getTitle()],
+            );
             $entityManager->flush();
 
             return $this->ok($this->optionPayload($option), 201);
@@ -130,8 +147,22 @@ final class SessionController extends ApiController
             $status = $body['status'] ?? null;
             if ($status === DecisionSession::OPEN) {
                 $session->open();
+                $this->activity->record(
+                    $session->getWorkspace(),
+                    'voting_opened',
+                    sprintf('%s opened voting for %s.', $user->getDisplayName(), $session->getTitle()),
+                    $user,
+                    $session,
+                );
             } elseif ($status === DecisionSession::CLOSED) {
                 $session->close();
+                $this->activity->record(
+                    $session->getWorkspace(),
+                    'session_closed',
+                    sprintf('%s closed %s.', $user->getDisplayName(), $session->getTitle()),
+                    $user,
+                    $session,
+                );
             } else {
                 throw new \DomainException('Unsupported session status transition.');
             }

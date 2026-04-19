@@ -3,6 +3,7 @@
 namespace App\UI\Http\Controller;
 
 use App\Application\Decision\AuthContext;
+use App\Application\Decision\ActivityRecorder;
 use App\Application\Decision\WorkspaceAccess;
 use App\Domain\Decision\Entity\DecisionSession;
 use App\Domain\Decision\Entity\SessionResult;
@@ -19,6 +20,7 @@ final class WorkspaceController extends ApiController
     public function __construct(
         private readonly AuthContext $auth,
         private readonly WorkspaceAccess $access,
+        private readonly ActivityRecorder $activity,
     ) {
     }
 
@@ -53,6 +55,7 @@ final class WorkspaceController extends ApiController
             $workspace = new Workspace($body['name'], $body['slug'], $user);
             $entityManager->persist($workspace);
             $entityManager->persist(new WorkspaceMember($workspace, $user, WorkspaceMember::OWNER));
+            $this->activity->record($workspace, 'workspace_created', sprintf('%s created workspace %s.', $user->getDisplayName(), $workspace->getName()), $user);
             $entityManager->flush();
 
             return $this->ok($this->workspacePayload($entityManager, $workspace, WorkspaceMember::OWNER), 201);
@@ -104,6 +107,14 @@ final class WorkspaceController extends ApiController
             }
 
             $entityManager->persist(new WorkspaceMember($workspace, $memberUser, WorkspaceMember::MEMBER));
+            $this->activity->record(
+                $workspace,
+                'member_added',
+                sprintf('%s added %s to %s.', $user->getDisplayName(), $memberUser->getDisplayName(), $workspace->getName()),
+                $user,
+                null,
+                ['member_user_id' => (string) $memberUser->getId()],
+            );
             $entityManager->flush();
 
             return $this->ok(['workspace_id' => (string) $id, 'user_id' => (string) $memberUser->getId(), 'role' => WorkspaceMember::MEMBER], 201);

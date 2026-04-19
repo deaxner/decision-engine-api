@@ -2,6 +2,7 @@
 
 namespace App\UI\Console;
 
+use App\Domain\Decision\Entity\ActivityEvent;
 use App\Domain\Decision\Entity\DecisionOption;
 use App\Domain\Decision\Entity\DecisionSession;
 use App\Domain\Decision\Entity\SessionResult;
@@ -279,7 +280,7 @@ final class SeedDemoDataCommand extends Command
 
     private function truncateDecisionTables(): void
     {
-        $this->connection->executeStatement('TRUNCATE TABLE session_results, votes, options, decision_sessions, workspace_members, workspaces, users RESTART IDENTITY CASCADE');
+        $this->connection->executeStatement('TRUNCATE TABLE activity_events, session_results, votes, options, decision_sessions, workspace_members, workspaces, users RESTART IDENTITY CASCADE');
     }
 
     /**
@@ -321,6 +322,14 @@ final class SeedDemoDataCommand extends Command
         $this->setProperty($workspace, 'createdAt', $workspaceBaseDate);
         $this->entityManager->persist($workspace);
         $this->entityManager->flush();
+        $this->recordActivity(
+            $workspace,
+            'workspace_created',
+            sprintf('%s created workspace %s.', $owner->getDisplayName(), $workspace->getName()),
+            $owner,
+            null,
+            $workspaceBaseDate,
+        );
 
         $members = [$owner];
         foreach ($workspaceBlueprint['members'] as $memberIndex) {
@@ -332,6 +341,17 @@ final class SeedDemoDataCommand extends Command
             $workspaceMember = new WorkspaceMember($workspace, $member, $role);
             $this->setProperty($workspaceMember, 'joinedAt', $workspaceBaseDate->modify(sprintf('+%d days', $memberPosition)));
             $this->entityManager->persist($workspaceMember);
+            if ($member !== $owner) {
+                $this->recordActivity(
+                    $workspace,
+                    'member_added',
+                    sprintf('%s added %s to %s.', $owner->getDisplayName(), $member->getDisplayName(), $workspace->getName()),
+                    $owner,
+                    null,
+                    $workspaceBaseDate->modify(sprintf('+%d days +30 minutes', $memberPosition)),
+                    ['member_user_id' => (string) $member->getId()],
+                );
+            }
         }
 
         $this->entityManager->flush();
@@ -374,16 +394,51 @@ final class SeedDemoDataCommand extends Command
         }
 
         $this->entityManager->flush();
+        $this->recordActivity(
+            $workspace,
+            'session_created',
+            sprintf('%s created decision %s.', $owner->getDisplayName(), $session->getTitle()),
+            $owner,
+            $session,
+            $sessionBaseDate,
+        );
+        foreach ($options as $optionIndex => $option) {
+            $this->recordActivity(
+                $workspace,
+                'option_added',
+                sprintf('%s added option %s to %s.', $owner->getDisplayName(), $option->getTitle(), $session->getTitle()),
+                $owner,
+                $session,
+                $sessionBaseDate->modify(sprintf('+%d minutes', 20 + ($optionIndex * 10))),
+                ['option_title' => $option->getTitle()],
+            );
+        }
 
         $status = $sessionBlueprint['status'];
         if ($status === DecisionSession::OPEN || $status === DecisionSession::CLOSED) {
             $session->open();
             $this->setProperty($session, 'startsAt', $sessionBaseDate->modify('+1 day'));
+            $this->recordActivity(
+                $workspace,
+                'voting_opened',
+                sprintf('%s opened voting for %s.', $owner->getDisplayName(), $session->getTitle()),
+                $owner,
+                $session,
+                $sessionBaseDate->modify('+1 day'),
+            );
         }
 
         if ($status === DecisionSession::CLOSED) {
             $session->close();
             $this->setProperty($session, 'endsAt', $sessionBaseDate->modify('+4 days'));
+            $this->recordActivity(
+                $workspace,
+                'session_closed',
+                sprintf('%s closed %s.', $owner->getDisplayName(), $session->getTitle()),
+                $owner,
+                $session,
+                $sessionBaseDate->modify('+4 days'),
+            );
         }
 
         $this->setProperty($session, 'status', $status);
@@ -394,17 +449,54 @@ final class SeedDemoDataCommand extends Command
         }
 
         $voteSpecs = $this->buildVoteSpecs($session, $options, $members, $sessionBaseDate, $sessionIndex);
+        $votersSeen = [];
         foreach ($voteSpecs as $voteSpec) {
+            $voterId = $voteSpec['user']->getId();
+            $activityType = $voterId !== null && isset($votersSeen[$voterId]) ? 'vote_changed' : 'vote_cast';
+            if ($voterId !== null) {
+                $votersSeen[$voterId] = true;
+            }
+
             $vote = new Vote($session, $voteSpec['user'], $voteSpec['payload']);
             $this->setProperty($vote, 'createdAt', $voteSpec['created_at']);
             $this->entityManager->persist($vote);
+            $this->recordActivity(
+                $workspace,
+                $activityType,
+                sprintf('%s %s vote on %s.', $voteSpec['user']->getDisplayName(), $activityType === 'vote_changed' ? 'changed their' : 'cast a', $session->getTitle()),
+                $voteSpec['user'],
+                $session,
+                $voteSpec['created_at'],
+            );
             $this->entityManager->flush();
 
-            $this->recomputeSnapshot($session, $voteSpec['created_at']->modify('+2 minutes'));
+            $recomputedAt = $voteSpec['created_at']->modify('+2 minutes');
+            if ($this->recomputeSnapshot($session, $recomputedAt)) {
+                $this->recordActivity(
+                    $workspace,
+                    'result_recomputed',
+                    sprintf('Results were recomputed for %s.', $session->getTitle()),
+                    null,
+                    $session,
+                    $recomputedAt,
+                );
+                $this->entityManager->flush();
+            }
         }
 
         if ($status === DecisionSession::CLOSED) {
-            $this->recomputeSnapshot($session, $sessionBaseDate->modify('+4 days +10 minutes'));
+            $recomputedAt = $sessionBaseDate->modify('+4 days +10 minutes');
+            if ($this->recomputeSnapshot($session, $recomputedAt)) {
+                $this->recordActivity(
+                    $workspace,
+                    'result_recomputed',
+                    sprintf('Results were recomputed for %s.', $session->getTitle()),
+                    null,
+                    $session,
+                    $recomputedAt,
+                );
+                $this->entityManager->flush();
+            }
         }
     }
 
@@ -511,7 +603,7 @@ final class SeedDemoDataCommand extends Command
         ];
     }
 
-    private function recomputeSnapshot(DecisionSession $session, \DateTimeImmutable $calculatedAt): void
+    private function recomputeSnapshot(DecisionSession $session, \DateTimeImmutable $calculatedAt): bool
     {
         $votes = $this->entityManager->getRepository(Vote::class)->findBy(
             ['session' => $session],
@@ -557,16 +649,32 @@ final class SeedDemoDataCommand extends Command
             $this->entityManager->persist($result);
             $this->entityManager->flush();
 
-            return;
+            return true;
         }
 
         if ($result->matches($computed['winner'], $resultData)) {
-            return;
+            return false;
         }
 
         $result->update($winningOption, $resultData);
         $this->setProperty($result, 'calculatedAt', $calculatedAt);
         $this->entityManager->flush();
+
+        return true;
+    }
+
+    private function recordActivity(
+        Workspace $workspace,
+        string $type,
+        string $summary,
+        ?User $actor,
+        ?DecisionSession $session,
+        \DateTimeImmutable $createdAt,
+        array $metadata = [],
+    ): void {
+        $event = new ActivityEvent($workspace, $type, $summary, $actor, $session, $metadata);
+        $this->setProperty($event, 'createdAt', $createdAt);
+        $this->entityManager->persist($event);
     }
 
     private function setProperty(object $entity, string $property, mixed $value): void

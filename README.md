@@ -20,7 +20,9 @@ This repository contains the modular monolith API. It owns the domain model, app
 - Vote casting.
 - Majority and Ranked IRV result computation.
 - Result snapshots.
-- Audit-ready immutable vote storage.
+- Workspace dashboard analytics.
+- Product-facing activity event storage.
+- Audit-ready immutable vote and activity storage.
 - Mercure result update publishing.
 
 ## Architecture
@@ -69,6 +71,7 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 - `GET /workspaces`
 - `POST /workspaces`
 - `GET /workspaces/{id}`
+- `GET /workspaces/{id}/dashboard`
 - `POST /workspaces/{id}/members`
 - `GET /workspaces/{id}/sessions`
 - `POST /workspaces/{id}/sessions`
@@ -81,6 +84,8 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 Authenticated endpoints expect `Authorization: Bearer <token>` using the token returned by `/register` or `/login`.
 
 `POST /workspaces/{id}/members` accepts either `user_id` for compatibility or `email` for the web MVP. Email membership adds an already registered user; invite emails are not part of this slice.
+
+`GET /workspaces/{id}/dashboard` returns the workspace summary, dashboard metrics, recent activity, and deterministic rule-based insights. Activity is stored in the append-only `activity_events` table and is recorded for workspace, member, session, option, voting, vote, close, and result recompute actions.
 
 `POST /sessions/{id}/votes` persists the vote and dispatches async result recomputation. The response confirms acceptance and does not include the result snapshot. Clients should read `GET /sessions/{id}/results` or subscribe to Mercure updates.
 
@@ -101,6 +106,7 @@ Mercure result updates are published to:
 - Result recomputation runs through Messenger.
 - `session_results.version` only increments when the computed snapshot changes.
 - Majority and ranked IRV strategies use deterministic option-position tie handling.
+- Dashboard metrics are read-model data; they do not introduce comments, due dates, categories, stakeholders, or notifications.
 
 ## Local Commands
 

@@ -4,6 +4,7 @@ namespace App\Tests\Functional;
 
 use App\Application\Decision\Handler\VoteCastEventHandler;
 use App\Application\Decision\Message\VoteCastEvent;
+use App\Domain\Decision\Entity\ActivityEvent;
 use App\Domain\Decision\Entity\DecisionSession;
 use App\Domain\Decision\Entity\SessionResult;
 use App\Domain\Decision\Entity\Vote;
@@ -185,6 +186,75 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame('MEMBER', $workspaceDetail['role']);
         self::assertSame(2, $workspaceDetail['member_count']);
         self::assertSame(0, $workspaceDetail['participation_rate']);
+    }
+
+    public function testWorkspaceDashboardRecordsActivityAndMetrics(): void
+    {
+        $client = static::createClient();
+        $owner = $this->register($client, 'dashboard-owner@example.test');
+        $member = $this->register($client, 'dashboard-member@example.test');
+        $outsider = $this->register($client, 'dashboard-outsider@example.test');
+
+        $client->request('POST', '/workspaces', server: $this->auth($owner['token']), content: json_encode([
+            'name' => 'Operations Guild',
+            'slug' => 'operations-guild',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $workspace = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'].'/dashboard', server: $this->auth($outsider['token']));
+        self::assertResponseStatusCodeSame(400);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
+            'email' => $member['user']['email'],
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']), content: json_encode([
+            'title' => 'Set the current JWT expiry window',
+            'voting_type' => 'MAJORITY',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $session = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        $client->request('POST', '/sessions/'.$session['id'].'/options', server: $this->auth($owner['token']), content: json_encode(['title' => '4 hours'], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $optionA = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        $client->request('POST', '/sessions/'.$session['id'].'/options', server: $this->auth($owner['token']), content: json_encode(['title' => '12 hours'], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+        $optionB = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        $client->request('PATCH', '/sessions/'.$session['id'], server: $this->auth($owner['token']), content: json_encode(['status' => 'OPEN'], JSON_THROW_ON_ERROR));
+        self::assertResponseIsSuccessful();
+
+        $firstVote = $this->castMajorityVote($client, $member['token'], $session['id'], $optionA['id']);
+        $this->handleVoteCast($session['id'], $firstVote['vote_id']);
+        $secondVote = $this->castMajorityVote($client, $member['token'], $session['id'], $optionB['id']);
+        $this->handleVoteCast($session['id'], $secondVote['vote_id']);
+
+        $client->request('PATCH', '/sessions/'.$session['id'], server: $this->auth($owner['token']), content: json_encode(['status' => 'CLOSED'], JSON_THROW_ON_ERROR));
+        self::assertResponseIsSuccessful();
+        self::getContainer()->get(\App\Application\Decision\Handler\RecomputeSessionResultHandler::class)(new \App\Application\Decision\Message\RecomputeSessionResult((int) $session['id'], 'test'));
+
+        $client->request('GET', '/workspaces/'.$workspace['id'].'/dashboard', server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $dashboard = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('Operations Guild', $dashboard['workspace']['name']);
+        self::assertSame(['total' => 1, 'draft' => 0, 'open' => 0, 'closed' => 1], $dashboard['workspace']['session_counts']);
+        self::assertSame(50, $dashboard['metrics']['engagement_rate']);
+        self::assertEquals(0.0, $dashboard['metrics']['decision_speed_days']);
+        self::assertSame(0, $dashboard['metrics']['active_session_count']);
+        self::assertSame(1, $dashboard['metrics']['closed_session_count']);
+        self::assertNotEmpty($dashboard['activity']);
+        self::assertContains('vote_cast', array_column($dashboard['activity'], 'type'));
+        self::assertContains('vote_changed', array_column($dashboard['activity'], 'type'));
+        self::assertContains('result_recomputed', array_column($dashboard['activity'], 'type'));
+        self::assertContains('no-active-sessions', array_column($dashboard['insights'], 'id'));
+        self::assertContains('decision-record-growing', array_column($dashboard['insights'], 'id'));
+
+        $entityManager = self::getContainer()->get(EntityManagerInterface::class);
+        self::assertGreaterThanOrEqual(9, $entityManager->getRepository(ActivityEvent::class)->count([]));
     }
 
     public function testSessionReadModel(): void

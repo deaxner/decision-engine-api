@@ -17,6 +17,7 @@ final class ResultCalculator
         private readonly MajorityStrategy $majorityStrategy,
         private readonly RankedIrvStrategy $rankedIrvStrategy,
         private readonly ResultUpdatedPublisher $publisher,
+        private readonly ActivityRecorder $activity,
     ) {
     }
 
@@ -58,6 +59,14 @@ final class ResultCalculator
 
         $result->update($computed['winner'] ? $optionById[$computed['winner']] : null, $resultData);
         $this->entityManager->persist($result);
+        $this->activity->record(
+            $session->getWorkspace(),
+            'result_recomputed',
+            sprintf('Results were recomputed for %s.', $session->getTitle()),
+            null,
+            $session,
+            ['version' => $result->getVersion()],
+        );
         $this->entityManager->flush();
         $this->publisher->publish($result);
 
