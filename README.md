@@ -36,7 +36,7 @@ src/
 
 ## Stack
 
-- PHP 8.3
+- PHP 8.4+; verified locally with PHP 8.5
 - Symfony 7
 - Doctrine ORM
 - PostgreSQL 16
