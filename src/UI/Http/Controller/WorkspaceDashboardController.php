@@ -41,7 +41,7 @@ final class WorkspaceDashboardController extends ApiController
                 'workspace' => $workspacePayload,
                 'metrics' => $metrics,
                 'activity' => array_map(fn (ActivityEvent $event) => $this->activityPayload($event), $activity),
-                'insights' => $this->insightsPayload($workspacePayload, $metrics),
+                'insights' => $this->insightsPayload($entityManager, $workspace, $workspacePayload, $metrics),
             ]);
         } catch (\Throwable $exception) {
             return $this->fail($exception);
@@ -152,10 +152,38 @@ final class WorkspaceDashboardController extends ApiController
         ];
     }
 
-    private function insightsPayload(array $workspace, array $metrics): array
+    private function insightsPayload(EntityManagerInterface $entityManager, Workspace $workspace, array $workspacePayload, array $metrics): array
     {
-        $counts = $workspace['session_counts'];
+        $counts = $workspacePayload['session_counts'];
         $insights = [];
+        $now = new \DateTimeImmutable();
+        $openSessions = $entityManager->getRepository(DecisionSession::class)->findBy(['workspace' => $workspace, 'status' => DecisionSession::OPEN]);
+        foreach ($openSessions as $session) {
+            if (!$session instanceof DecisionSession || $session->getDueAt() === null) {
+                continue;
+            }
+
+            $daysUntilDue = (int) floor(($session->getDueAt()->getTimestamp() - $now->getTimestamp()) / 86400);
+            if ($session->getDueAt() < $now) {
+                $insights[] = [
+                    'id' => sprintf('overdue-%s', $session->getId()),
+                    'kind' => 'deadline',
+                    'severity' => 'warning',
+                    'title' => 'Decision is overdue',
+                    'body' => sprintf('%s passed its target deadline.', $session->getTitle()),
+                    'session_id' => (string) $session->getId(),
+                ];
+            } elseif ($daysUntilDue <= 2) {
+                $insights[] = [
+                    'id' => sprintf('due-soon-%s', $session->getId()),
+                    'kind' => 'deadline',
+                    'severity' => 'info',
+                    'title' => 'Decision deadline is near',
+                    'body' => sprintf('%s is due within %d day%s.', $session->getTitle(), max(0, $daysUntilDue), $daysUntilDue === 1 ? '' : 's'),
+                    'session_id' => (string) $session->getId(),
+                ];
+            }
+        }
 
         if ($metrics['engagement_rate'] < 50 && $counts['open'] + $counts['closed'] > 0) {
             $insights[] = [

@@ -35,6 +35,12 @@ class DecisionSession
     #[ORM\Column(nullable: true)]
     private ?string $description;
 
+    #[ORM\Column(nullable: true)]
+    private ?string $category = null;
+
+    #[ORM\Column(name: 'due_at', nullable: true)]
+    private ?\DateTimeImmutable $dueAt = null;
+
     #[ORM\Column(length: 20)]
     private string $status = self::DRAFT;
 
@@ -55,7 +61,11 @@ class DecisionSession
     #[ORM\OrderBy(['position' => 'ASC'])]
     private Collection $options;
 
-    public function __construct(Workspace $workspace, User $createdBy, string $title, ?string $description, string $votingType)
+    /** @var Collection<int, SessionAssignee> */
+    #[ORM\OneToMany(mappedBy: 'session', targetEntity: SessionAssignee::class, cascade: ['persist'], orphanRemoval: true)]
+    private Collection $assignees;
+
+    public function __construct(Workspace $workspace, User $createdBy, string $title, ?string $description, string $votingType, ?string $category = null, ?\DateTimeImmutable $dueAt = null)
     {
         if (!in_array($votingType, [self::MAJORITY, self::RANKED_IRV], true)) {
             throw new \InvalidArgumentException('Invalid voting type.');
@@ -65,9 +75,12 @@ class DecisionSession
         $this->createdBy = $createdBy;
         $this->title = $title;
         $this->description = $description;
+        $this->category = $category !== null && trim($category) !== '' ? trim($category) : null;
+        $this->dueAt = $dueAt;
         $this->votingType = $votingType;
         $this->createdAt = new \DateTimeImmutable();
         $this->options = new ArrayCollection();
+        $this->assignees = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -88,6 +101,16 @@ class DecisionSession
     public function getDescription(): ?string
     {
         return $this->description;
+    }
+
+    public function getCategory(): ?string
+    {
+        return $this->category;
+    }
+
+    public function getDueAt(): ?\DateTimeImmutable
+    {
+        return $this->dueAt;
     }
 
     public function getStatus(): string
@@ -119,6 +142,27 @@ class DecisionSession
     public function getOptions(): Collection
     {
         return $this->options;
+    }
+
+    /** @return Collection<int, SessionAssignee> */
+    public function getAssignees(): Collection
+    {
+        if (!isset($this->assignees)) {
+            $this->assignees = new ArrayCollection();
+        }
+
+        return $this->assignees;
+    }
+
+    public function assign(User $user): void
+    {
+        foreach ($this->getAssignees() as $assignee) {
+            if ($assignee->getUser() === $user) {
+                return;
+            }
+        }
+
+        $this->getAssignees()->add(new SessionAssignee($this, $user));
     }
 
     public function addOption(DecisionOption $option): void

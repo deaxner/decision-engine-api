@@ -162,6 +162,12 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame($member['user']['id'], $membership['user_id']);
         self::assertSame('MEMBER', $membership['role']);
 
+        $client->request('GET', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $members = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertCount(2, $members);
+        self::assertSame([$owner['user']['id'], $member['user']['id']], array_column($members, 'id'));
+
         $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
             'email' => $member['user']['email'],
         ], JSON_THROW_ON_ERROR));
@@ -213,6 +219,9 @@ final class ApiFlowTest extends WebTestCase
         $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']), content: json_encode([
             'title' => 'Set the current JWT expiry window',
             'voting_type' => 'MAJORITY',
+            'category' => 'Security',
+            'due_at' => (new \DateTimeImmutable('+1 day'))->format(\DateTimeInterface::ATOM),
+            'assignee_ids' => [$member['user']['id']],
         ], JSON_THROW_ON_ERROR));
         self::assertResponseStatusCodeSame(201);
         $session = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
@@ -231,6 +240,11 @@ final class ApiFlowTest extends WebTestCase
         $this->handleVoteCast($session['id'], $firstVote['vote_id']);
         $secondVote = $this->castMajorityVote($client, $member['token'], $session['id'], $optionB['id']);
         $this->handleVoteCast($session['id'], $secondVote['vote_id']);
+
+        $client->request('GET', '/workspaces/'.$workspace['id'].'/dashboard', server: $this->auth($owner['token']));
+        self::assertResponseIsSuccessful();
+        $openDashboard = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertContains('due-soon-'.$session['id'], array_column($openDashboard['insights'], 'id'));
 
         $client->request('PATCH', '/sessions/'.$session['id'], server: $this->auth($owner['token']), content: json_encode(['status' => 'CLOSED'], JSON_THROW_ON_ERROR));
         self::assertResponseIsSuccessful();
@@ -261,6 +275,8 @@ final class ApiFlowTest extends WebTestCase
     {
         $client = static::createClient();
         $owner = $this->register($client, 'session-read@example.test');
+        $member = $this->register($client, 'session-member@example.test');
+        $outsider = $this->register($client, 'session-outsider@example.test');
 
         $client->request('POST', '/workspaces', server: $this->auth($owner['token']), content: json_encode([
             'name' => 'Product',
@@ -268,13 +284,32 @@ final class ApiFlowTest extends WebTestCase
         ], JSON_THROW_ON_ERROR));
         $workspace = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
 
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/members', server: $this->auth($owner['token']), content: json_encode([
+            'email' => $member['user']['email'],
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(201);
+
+        $dueAt = (new \DateTimeImmutable('+7 days'))->format(\DateTimeInterface::ATOM);
         $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']), content: json_encode([
             'title' => 'Choose launch plan',
             'description' => 'Pick the launch plan for Q2.',
             'voting_type' => 'RANKED_IRV',
+            'category' => 'Product',
+            'due_at' => $dueAt,
+            'assignee_ids' => [$member['user']['id']],
         ], JSON_THROW_ON_ERROR));
         self::assertResponseStatusCodeSame(201);
         $session = json_decode($client->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Product', $session['category']);
+        self::assertSame($dueAt, $session['due_at']);
+        self::assertSame([$member['user']['id']], array_column($session['assignees'], 'id'));
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($owner['token']), content: json_encode([
+            'title' => 'Invalid assignee',
+            'voting_type' => 'MAJORITY',
+            'assignee_ids' => [$outsider['user']['id']],
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(400);
 
         $client->request('POST', '/sessions/'.$session['id'].'/options', server: $this->auth($owner['token']), content: json_encode(['title' => 'Second', 'position' => 2], JSON_THROW_ON_ERROR));
         self::assertResponseStatusCodeSame(201);
@@ -288,6 +323,9 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame($session['id'], $sessions[0]['id']);
         self::assertSame('Choose launch plan', $sessions[0]['title']);
         self::assertSame('RANKED_IRV', $sessions[0]['voting_type']);
+        self::assertSame('Product', $sessions[0]['category']);
+        self::assertSame($dueAt, $sessions[0]['due_at']);
+        self::assertSame([$member['user']['id']], array_column($sessions[0]['assignees'], 'id'));
 
         $client->request('GET', '/workspaces/'.$workspace['id'], server: $this->auth($owner['token']));
         self::assertResponseIsSuccessful();
@@ -302,6 +340,9 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame('DRAFT', $detail['status']);
         self::assertNull($detail['starts_at']);
         self::assertNull($detail['ends_at']);
+        self::assertSame('Product', $detail['category']);
+        self::assertSame($dueAt, $detail['due_at']);
+        self::assertSame([$member['user']['id']], array_column($detail['assignees'], 'id'));
         self::assertSame(['First', 'Second'], array_column($detail['options'], 'title'));
     }
 

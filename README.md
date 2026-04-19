@@ -72,6 +72,7 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 - `POST /workspaces`
 - `GET /workspaces/{id}`
 - `GET /workspaces/{id}/dashboard`
+- `GET /workspaces/{id}/members`
 - `POST /workspaces/{id}/members`
 - `GET /workspaces/{id}/sessions`
 - `POST /workspaces/{id}/sessions`
@@ -83,9 +84,21 @@ The Windows machine PATH has been updated so new terminals resolve `php` to PHP 
 
 Authenticated endpoints expect `Authorization: Bearer <token>` using the token returned by `/register` or `/login`.
 
-`POST /workspaces/{id}/members` accepts either `user_id` for compatibility or `email` for the web MVP. Email membership adds an already registered user; invite emails are not part of this slice.
-
 `GET /workspaces/{id}/dashboard` returns the workspace summary, dashboard metrics, recent activity, and deterministic rule-based insights. Activity is stored in the append-only `activity_events` table and is recorded for workspace, member, session, option, voting, vote, close, and result recompute actions.
+
+`GET /workspaces/{id}/members` returns existing workspace members for assignment UI. `POST /workspaces/{id}/members` accepts either `user_id` for compatibility or `email` for the web MVP. Email membership adds an already registered user; invite emails are not part of this slice.
+
+`POST /workspaces/{id}/sessions` accepts the existing `title`, optional `description`, and `voting_type` fields plus optional metadata:
+
+```json
+{
+  "category": "Infrastructure",
+  "due_at": "2026-04-28T12:00:00+00:00",
+  "assignee_ids": ["3", "4"]
+}
+```
+
+Session list/detail responses include `category`, `due_at`, and `assignees`. Assignees must already be members of the same workspace.
 
 `POST /sessions/{id}/votes` persists the vote and dispatches async result recomputation. The response confirms acceptance and does not include the result snapshot. Clients should read `GET /sessions/{id}/results` or subscribe to Mercure updates.
 
@@ -106,7 +119,7 @@ Mercure result updates are published to:
 - Result recomputation runs through Messenger.
 - `session_results.version` only increments when the computed snapshot changes.
 - Majority and ranked IRV strategies use deterministic option-position tie handling.
-- Dashboard metrics are read-model data; they do not introduce comments, due dates, categories, stakeholders, or notifications.
+- Dashboard metrics are read-model data; rule-based insights can now use real due dates, but comments, notifications, and stakeholder progress remain out of scope.
 
 ## Local Commands
 

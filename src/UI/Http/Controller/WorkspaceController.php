@@ -21,6 +21,7 @@ final class WorkspaceController extends ApiController
         private readonly AuthContext $auth,
         private readonly WorkspaceAccess $access,
         private readonly ActivityRecorder $activity,
+        private readonly EntityManagerInterface $entityManager,
     ) {
     }
 
@@ -81,6 +82,25 @@ final class WorkspaceController extends ApiController
         }
     }
 
+    #[Route('/workspaces/{id}/members', methods: ['GET'])]
+    public function listMembers(int $id, Request $request): JsonResponse
+    {
+        try {
+            $user = $this->auth->user($request);
+            $workspace = $this->entityManager->find(Workspace::class, $id);
+            if (!$workspace instanceof Workspace) {
+                throw new \DomainException('Workspace not found.');
+            }
+            $this->access->requireMember($user, $workspace);
+
+            $members = $this->entityManager->getRepository(WorkspaceMember::class)->findBy(['workspace' => $workspace]);
+
+            return $this->ok(array_map(fn (WorkspaceMember $member) => $this->memberPayload($member), $members));
+        } catch (\Throwable $exception) {
+            return $this->fail($exception);
+        }
+    }
+
     #[Route('/workspaces/{id}/members', methods: ['POST'])]
     public function addMember(int $id, Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
@@ -121,6 +141,18 @@ final class WorkspaceController extends ApiController
         } catch (\Throwable $exception) {
             return $this->fail($exception);
         }
+    }
+
+    private function memberPayload(WorkspaceMember $member): array
+    {
+        $user = $member->getUser();
+
+        return [
+            'id' => (string) $user->getId(),
+            'email' => $user->getEmail(),
+            'display_name' => $user->getDisplayName(),
+            'role' => $member->getRole(),
+        ];
     }
 
     private function workspacePayload(EntityManagerInterface $entityManager, Workspace $workspace, ?string $role = null): array

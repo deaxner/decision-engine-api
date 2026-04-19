@@ -8,7 +8,10 @@ use App\Application\Decision\Message\RecomputeSessionResult;
 use App\Application\Decision\WorkspaceAccess;
 use App\Domain\Decision\Entity\DecisionOption;
 use App\Domain\Decision\Entity\DecisionSession;
+use App\Domain\Decision\Entity\SessionAssignee;
+use App\Domain\Decision\Entity\User;
 use App\Domain\Decision\Entity\Workspace;
+use App\Domain\Decision\Entity\WorkspaceMember;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -62,7 +65,16 @@ final class SessionController extends ApiController
                 }
             }
 
-            $session = new DecisionSession($workspace, $user, $body['title'], $body['description'] ?? null, $body['voting_type']);
+            $dueAt = null;
+            if (isset($body['due_at']) && is_string($body['due_at']) && trim($body['due_at']) !== '') {
+                $dueAt = new \DateTimeImmutable($body['due_at']);
+            }
+
+            $category = isset($body['category']) && is_string($body['category']) ? $body['category'] : null;
+            $session = new DecisionSession($workspace, $user, $body['title'], $body['description'] ?? null, $body['voting_type'], $category, $dueAt);
+            foreach ($this->assigneesFromBody($body, $workspace, $entityManager) as $assignee) {
+                $session->assign($assignee);
+            }
             $entityManager->persist($session);
             $this->activity->record(
                 $workspace,
@@ -70,6 +82,11 @@ final class SessionController extends ApiController
                 sprintf('%s created decision %s.', $user->getDisplayName(), $session->getTitle()),
                 $user,
                 $session,
+                [
+                    'category' => $session->getCategory(),
+                    'due_at' => $session->getDueAt()?->format(\DateTimeInterface::ATOM),
+                    'assignee_ids' => array_map(fn (SessionAssignee $assignee) => (string) $assignee->getUser()->getId(), $session->getAssignees()->toArray()),
+                ],
             );
             $entityManager->flush();
 
@@ -184,11 +201,56 @@ final class SessionController extends ApiController
             'id' => (string) $session->getId(),
             'title' => $session->getTitle(),
             'description' => $session->getDescription(),
+            'category' => $session->getCategory(),
             'status' => $session->getStatus(),
             'voting_type' => $session->getVotingType(),
+            'due_at' => $session->getDueAt()?->format(\DateTimeInterface::ATOM),
             'starts_at' => $session->getStartsAt()?->format(\DateTimeInterface::ATOM),
             'ends_at' => $session->getEndsAt()?->format(\DateTimeInterface::ATOM),
+            'assignees' => array_map(fn (SessionAssignee $assignee) => $this->assigneePayload($assignee), $session->getAssignees()->toArray()),
             'options' => array_map(fn (DecisionOption $option) => $this->optionPayload($option), $session->getOptions()->toArray()),
+        ];
+    }
+
+    /**
+     * @return list<User>
+     */
+    private function assigneesFromBody(array $body, Workspace $workspace, EntityManagerInterface $entityManager): array
+    {
+        $assigneeIds = $body['assignee_ids'] ?? [];
+        if ($assigneeIds === null || $assigneeIds === '') {
+            return [];
+        }
+        if (!is_array($assigneeIds)) {
+            throw new \DomainException('assignee_ids must be an array.');
+        }
+
+        $assignees = [];
+        foreach (array_unique(array_map('strval', $assigneeIds)) as $assigneeId) {
+            if (!is_numeric($assigneeId)) {
+                throw new \DomainException('Assignee id must be numeric.');
+            }
+            $assignee = $entityManager->find(User::class, (int) $assigneeId);
+            if (!$assignee instanceof User) {
+                throw new \DomainException('Assignee user not found.');
+            }
+            if (!$entityManager->getRepository(WorkspaceMember::class)->findOneBy(['workspace' => $workspace, 'user' => $assignee])) {
+                throw new \DomainException('Assignee must be a workspace member.');
+            }
+            $assignees[] = $assignee;
+        }
+
+        return $assignees;
+    }
+
+    private function assigneePayload(SessionAssignee $assignee): array
+    {
+        $user = $assignee->getUser();
+
+        return [
+            'id' => (string) $user->getId(),
+            'display_name' => $user->getDisplayName(),
+            'email' => $user->getEmail(),
         ];
     }
 

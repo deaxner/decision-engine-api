@@ -29,6 +29,7 @@ use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 final class SeedDemoDataCommand extends Command
 {
     private const DEFAULT_PASSWORD = 'Decision123!';
+    private const SESSION_CATEGORIES = ['Governance', 'Infrastructure', 'Security', 'Product'];
 
     /** @var array<int, array{name: string, slug: string, owner: int, members: int[], sessions: array<int, array<string, mixed>>}> */
     private const WORKSPACE_BLUEPRINTS = [
@@ -280,7 +281,7 @@ final class SeedDemoDataCommand extends Command
 
     private function truncateDecisionTables(): void
     {
-        $this->connection->executeStatement('TRUNCATE TABLE activity_events, session_results, votes, options, decision_sessions, workspace_members, workspaces, users RESTART IDENTITY CASCADE');
+        $this->connection->executeStatement('TRUNCATE TABLE activity_events, session_assignees, session_results, votes, options, decision_sessions, workspace_members, workspaces, users RESTART IDENTITY CASCADE');
     }
 
     /**
@@ -374,16 +375,28 @@ final class SeedDemoDataCommand extends Command
         \DateTimeImmutable $sessionBaseDate,
         int $sessionIndex,
     ): void {
+        $category = self::SESSION_CATEGORIES[$sessionIndex % count(self::SESSION_CATEGORIES)];
+        $dueAt = match ($sessionBlueprint['status']) {
+            DecisionSession::OPEN => (new \DateTimeImmutable('now'))->modify(sprintf('+%d days', 2 + $sessionIndex)),
+            DecisionSession::CLOSED => $sessionBaseDate->modify('+4 days'),
+            default => $sessionBaseDate->modify('+14 days'),
+        };
+
         $session = new DecisionSession(
             $workspace,
             $owner,
             $sessionBlueprint['title'],
             $sessionBlueprint['description'],
             $sessionBlueprint['type'],
+            $category,
+            $dueAt,
         );
         $this->setProperty($session, 'createdAt', $sessionBaseDate);
 
         $this->entityManager->persist($session);
+        foreach (array_slice($members, 0, min(3, count($members))) as $assignee) {
+            $session->assign($assignee);
+        }
 
         $options = [];
         foreach ($sessionBlueprint['options'] as $position => $optionTitle) {
@@ -401,6 +414,14 @@ final class SeedDemoDataCommand extends Command
             $owner,
             $session,
             $sessionBaseDate,
+            [
+                'category' => $session->getCategory(),
+                'due_at' => $session->getDueAt()?->format(\DateTimeInterface::ATOM),
+                'assignee_ids' => array_map(
+                    static fn ($assignee) => (string) $assignee->getUser()->getId(),
+                    $session->getAssignees()->toArray(),
+                ),
+            ],
         );
         foreach ($options as $optionIndex => $option) {
             $this->recordActivity(
