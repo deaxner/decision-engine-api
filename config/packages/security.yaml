@@ -1,7 +1,8 @@
 security:
   password_hashers:
     App\Domain\Decision\Entity\User:
-      algorithm: auto
+      algorithm: bcrypt
+      cost: 8
   providers:
     app_user_provider:
       entity:
@@ -14,4 +15,3 @@ security:
     main:
       lazy: true
       provider: app_user_provider
-
