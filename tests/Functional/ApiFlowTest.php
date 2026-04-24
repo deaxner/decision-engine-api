@@ -192,6 +192,12 @@ final class ApiFlowTest extends WebTestCase
         self::assertSame('MEMBER', $workspaceDetail['role']);
         self::assertSame(2, $workspaceDetail['member_count']);
         self::assertSame(0, $workspaceDetail['participation_rate']);
+
+        $client->request('POST', '/workspaces/'.$workspace['id'].'/sessions', server: $this->auth($member['token']), content: json_encode([
+            'title' => 'Member-created decision',
+            'voting_type' => 'MAJORITY',
+        ], JSON_THROW_ON_ERROR));
+        self::assertResponseStatusCodeSame(400);
     }
 
     public function testWorkspaceDashboardRecordsActivityAndMetrics(): void

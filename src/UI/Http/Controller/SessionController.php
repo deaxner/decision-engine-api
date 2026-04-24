@@ -56,7 +56,7 @@ final class SessionController extends ApiController
             if (!$workspace instanceof Workspace) {
                 throw new \DomainException('Workspace not found.');
             }
-            $this->access->requireMember($user, $workspace);
+            $this->access->requireOwner($user, $workspace);
 
             $body = $this->body($request);
             foreach (['title', 'voting_type'] as $field) {
