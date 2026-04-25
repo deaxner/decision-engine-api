@@ -18,7 +18,7 @@ abstract class ApiController extends AbstractController
         return $body;
     }
 
-    protected function ok(array $data, int $status = 200): JsonResponse
+    protected function ok(mixed $data, int $status = 200): JsonResponse
     {
         return new JsonResponse($data, $status);
     }
@@ -28,4 +28,3 @@ abstract class ApiController extends AbstractController
         return new JsonResponse(['error' => $exception->getMessage()], $status);
     }
 }
-

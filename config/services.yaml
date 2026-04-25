@@ -6,6 +6,39 @@ services:
   App\:
     resource: '../src/'
 
+  App\Application\Decision\WorkspaceMembershipRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineWorkspaceMembershipRepository
+
+  App\Application\Decision\WorkspaceReadRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineWorkspaceReadRepository
+
+  App\Application\Decision\SessionReadRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineSessionReadRepository
+
+  App\Application\Decision\UserLookupRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineUserLookupRepository
+
+  App\Application\Decision\ResultComputationRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineResultComputationRepository
+
+  App\Application\Decision\ResultRecomputer:
+    alias: App\Application\Decision\ResultCalculator
+
+  App\Application\Decision\DecisionMessageTargetRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineDecisionMessageTargetRepository
+
+  App\Application\Decision\ActivityEventStore:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineActivityEventStore
+
+  App\Application\Decision\WorkspaceCommandRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineWorkspaceCommandRepository
+
+  App\Application\Decision\SessionCommandRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineSessionCommandRepository
+
+  App\Application\Decision\VoteCommandRepository:
+    alias: App\Infrastructure\Persistence\Decision\DoctrineVoteCommandRepository
+
   App\Application\Decision\ResultUpdatedPublisher:
     alias: App\Infrastructure\Mercure\MercureResultUpdatedPublisher
 

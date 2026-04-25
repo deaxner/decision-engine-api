@@ -4,13 +4,12 @@ namespace App\Application\Decision;
 
 use App\Domain\Decision\Entity\User;
 use App\Infrastructure\Security\TokenService;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
 final class AuthContext
 {
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
+        private readonly UserLookupRepository $users,
         private readonly TokenService $tokens,
     ) {
     }
@@ -18,7 +17,7 @@ final class AuthContext
     public function user(Request $request): User
     {
         $userId = $this->tokens->userIdFromAuthorization($request->headers->get('Authorization'));
-        $user = $this->entityManager->find(User::class, $userId);
+        $user = $this->users->findUserById($userId);
         if (!$user instanceof User) {
             throw new \DomainException('Authenticated user was not found.');
         }
@@ -26,4 +25,3 @@ final class AuthContext
         return $user;
     }
 }
-

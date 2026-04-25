@@ -5,20 +5,16 @@ namespace App\Application\Decision;
 use App\Domain\Decision\Entity\User;
 use App\Domain\Decision\Entity\Workspace;
 use App\Domain\Decision\Entity\WorkspaceMember;
-use Doctrine\ORM\EntityManagerInterface;
 
 final class WorkspaceAccess
 {
-    public function __construct(private readonly EntityManagerInterface $entityManager)
+    public function __construct(private readonly WorkspaceMembershipRepository $memberships)
     {
     }
 
     public function requireMember(User $user, Workspace $workspace): WorkspaceMember
     {
-        $member = $this->entityManager->getRepository(WorkspaceMember::class)->findOneBy([
-            'workspace' => $workspace,
-            'user' => $user,
-        ]);
+        $member = $this->memberships->findMembership($user, $workspace);
 
         if (!$member instanceof WorkspaceMember) {
             throw new \DomainException('User is not a workspace member.');
@@ -35,4 +31,3 @@ final class WorkspaceAccess
         }
     }
 }
-

@@ -25,12 +25,14 @@ final class ApiFlowTest extends WebTestCase
         $connection = $entityManager->getConnection();
         $isPostgres = str_contains($connection->getDatabasePlatform()::class, 'PostgreSQL');
         if ($isPostgres) {
-            $connection->executeStatement('DROP SCHEMA public CASCADE');
+            $connection->executeStatement('DROP SCHEMA IF EXISTS public CASCADE');
             $connection->executeStatement('CREATE SCHEMA public');
         }
         $tool = new SchemaTool($entityManager);
-        if (!$isPostgres) {
+        try {
             $tool->dropSchema($metadata);
+        } catch (\Throwable) {
+            // The test database may already be empty after a schema reset.
         }
         $tool->createSchema($metadata);
         RecordingResultUpdatedPublisher::reset();

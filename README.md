@@ -33,6 +33,7 @@ src/
     Decision/
   Application/
     Decision/
+    DemoData/
   Infrastructure/
     Persistence/
     Messaging/
@@ -41,7 +42,12 @@ src/
   UI/
     Http/
       Controller/
+    Console/
 ```
+
+`UI\Console\SeedDemoDataCommand` is intentionally thin. Demo dataset shape and seeding orchestration live in `Application\DemoData`, so local tooling does not become an unreviewed second application layer.
+
+HTTP controllers are now expected to stay thin as well. Command orchestration for workspace, session, and vote writes lives in `Application\Decision\*CommandService`, raw JSON request bodies are mapped into typed inputs before they cross the application boundary, read fetching lives in `Application\Decision\*ReadModelQuery`, and the remaining application services for auth, result computation, and Messenger handlers now also depend on narrow repository/store ports implemented in `Infrastructure\Persistence\Decision` instead of the full ORM surface. Responses are emitted through explicit output DTOs instead of anonymous arrays.
 
 ## Stack
 
@@ -131,6 +137,14 @@ php bin/console lint:container
 php bin/console doctrine:schema:validate --skip-sync
 php vendor/bin/phpunit
 ```
+
+Demo data:
+
+```bash
+php bin/console app:seed:demo-data --reset
+```
+
+The command delegates to `App\Application\DemoData\DemoDataSeeder`, which owns dataset orchestration and returns an explicit seed report to the console layer.
 
 Functional tests use PostgreSQL 16 through `docker-compose.test.yaml` on port `55432`. Unit tests remain database-free.
 

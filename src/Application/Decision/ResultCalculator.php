@@ -5,15 +5,13 @@ namespace App\Application\Decision;
 use App\Domain\Decision\Entity\DecisionOption;
 use App\Domain\Decision\Entity\DecisionSession;
 use App\Domain\Decision\Entity\SessionResult;
-use App\Domain\Decision\Entity\Vote;
 use App\Domain\Decision\Voting\MajorityStrategy;
 use App\Domain\Decision\Voting\RankedIrvStrategy;
-use Doctrine\ORM\EntityManagerInterface;
 
-final class ResultCalculator
+final class ResultCalculator implements ResultRecomputer
 {
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
+        private readonly ResultComputationRepository $repository,
         private readonly MajorityStrategy $majorityStrategy,
         private readonly RankedIrvStrategy $rankedIrvStrategy,
         private readonly ResultUpdatedPublisher $publisher,
@@ -23,7 +21,7 @@ final class ResultCalculator
 
     public function recompute(DecisionSession $session): SessionResult
     {
-        $votes = $this->entityManager->getRepository(Vote::class)->findBy(['session' => $session], ['createdAt' => 'DESC', 'id' => 'DESC']);
+        $votes = $this->repository->votesForSession($session);
         $latestByUser = [];
         foreach ($votes as $vote) {
             $userId = $vote->getUser()->getId();
@@ -52,13 +50,13 @@ final class ResultCalculator
             'computed_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
         ];
 
-        $result = $this->entityManager->getRepository(SessionResult::class)->find($session) ?? new SessionResult($session);
+        $result = $this->repository->resultForSession($session) ?? new SessionResult($session);
         if ($result->getVersion() > 0 && $result->matches($computed['winner'], $resultData)) {
             return $result;
         }
 
         $result->update($computed['winner'] ? $optionById[$computed['winner']] : null, $resultData);
-        $this->entityManager->persist($result);
+        $this->repository->addResult($result);
         $this->activity->record(
             $session->getWorkspace(),
             'result_recomputed',
@@ -67,7 +65,7 @@ final class ResultCalculator
             $session,
             ['version' => $result->getVersion()],
         );
-        $this->entityManager->flush();
+        $this->repository->flush();
         $this->publisher->publish($result);
 
         return $result;

@@ -3,30 +3,27 @@
 namespace App\Application\Decision\Handler;
 
 use App\Application\Decision\Message\VoteCastEvent;
-use App\Application\Decision\ResultCalculator;
-use App\Domain\Decision\Entity\DecisionSession;
-use App\Domain\Decision\Entity\Vote;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Application\Decision\DecisionMessageTargetRepository;
+use App\Application\Decision\ResultRecomputer;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
 #[AsMessageHandler]
 final readonly class VoteCastEventHandler
 {
     public function __construct(
-        private EntityManagerInterface $entityManager,
-        private ResultCalculator $results,
+        private DecisionMessageTargetRepository $targets,
+        private ResultRecomputer $results,
     ) {
     }
 
     public function __invoke(VoteCastEvent $event): void
     {
-        $session = $this->entityManager->find(DecisionSession::class, $event->sessionId);
-        $vote = $this->entityManager->find(Vote::class, $event->voteId);
-        if (!$session instanceof DecisionSession || !$vote instanceof Vote) {
+        $session = $this->targets->findSessionById($event->sessionId);
+        $vote = $this->targets->findVoteById($event->voteId);
+        if ($session === null || $vote === null) {
             throw new \DomainException('Cannot recompute results for a missing session or vote.');
         }
 
         $this->results->recompute($session);
     }
 }
-
